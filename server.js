@@ -7,16 +7,26 @@ const app = express();
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ✅ Enable CORS with full options
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://parthiv-gunjari.github.io'
+];
+
 app.use(cors({
-  origin: 'http://localhost:3009',
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed for this origin'));
+    }
+  },
   credentials: true
 }));
 
-// ✅ Handle preflight requests
-app.options('*', cors());
+app.options('*', cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 
 app.use(express.json());
 
