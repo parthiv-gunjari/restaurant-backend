@@ -115,17 +115,24 @@ router.patch('/:id/complete', authenticateAdmin, async (req, res) => {
 // ============================================================
 router.get('/history', async (req, res) => {
   try {
-    const { email, name } = req.query;
-    if (!email && !name) return res.status(400).json({ error: 'Please provide email or name to fetch history.' });
+    const { email, name, limit = 50 } = req.query;
+    if (!email && !name) {
+      return res.status(400).json({ error: 'Please provide email or name to fetch history.' });
+    }
 
     const query = {};
     if (email) query.email = email;
     if (name) query.name = name;
 
-    const orders = await Order.find(query).sort({ timestamp: -1 });
-    if (orders.length === 0) return res.status(404).json({ message: 'No orders found for the provided info.' });
+    const orders = await Order.find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit));
 
-    res.json(orders);
+    if (!orders || orders.length === 0) {
+      return res.status(404).json({ error: 'No orders found for the provided email or name.' });
+    }
+
+    res.status(200).json(orders);
   } catch (err) {
     console.error("❌ Error fetching order history:", err);
     res.status(500).json({ error: 'Internal server error' });
