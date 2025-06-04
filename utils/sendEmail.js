@@ -19,7 +19,7 @@ async function sendOrderCompletionEmail(to, orderId) {
       <p>Please visit our counter to collect your food.</p>
       <p>We hope you enjoy your meal!</p>
       <br/>
-      <p>– Team Parthiv’s and Divya's Restaurant</p>
+      <p>– Team Parthiv’s Kitchen</p>
     `
   };
 
