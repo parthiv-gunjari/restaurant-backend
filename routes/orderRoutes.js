@@ -11,16 +11,20 @@ const authenticateAdmin = require('../middleware/authMiddleware');
 // ==========================
 router.post('/', async (req, res) => {
   try {
+    console.log("🛒 Incoming order payload:", req.body);
     const { name, email, items, notes, itemsHtml } = req.body;
 
     if (!name || !email || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Invalid order data' });
     }
 
-    const newOrder = new Order({ name, email, items, notes, status: 'Pending' });
+    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000); // Simple unique code
+    const newOrder = new Order({ orderCode, name, email, items, notes, status: 'Pending' });
     const savedOrder = await newOrder.save();
+    console.log("✅ Order saved:", savedOrder);
 
     await sendOrderConfirmationEmail(email, name, savedOrder._id, itemsHtml);
+    console.log("📧 Confirmation email sent to:", email);
     res.status(201).json({ message: 'Order placed', order: savedOrder });
   } catch (err) {
     console.error("❌ Error placing order:", err);
