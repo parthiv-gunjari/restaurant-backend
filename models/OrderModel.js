@@ -1,7 +1,11 @@
-// models/OrderModel.js
 const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
+  orderCode: {
+    type: String,
+    required: true,
+    unique: true
+  },
   name: { type: String, required: true },
   email: { type: String, required: true },
   items: [
@@ -12,7 +16,7 @@ const orderSchema = new mongoose.Schema({
       quantity: Number
     }
   ],
-  notes: { type: String }, // 🆕 Order notes (optional)
+  notes: { type: String },
   timestamp: { type: Date, default: Date.now },
   status: {
     type: String,

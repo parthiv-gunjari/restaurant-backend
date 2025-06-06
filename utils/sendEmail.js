@@ -10,7 +10,7 @@ const transporter = nodemailer.createTransport({
 
 async function sendOrderCompletionEmail(to, orderId) {
   const mailOptions = {
-    from: `"Your Restaurant" <${process.env.EMAIL_USER}>`,
+    from: `"Parthiv's Kitchen" <${process.env.EMAIL_USER}>`,
     to,
     subject: `✅ Order #${orderId} Ready for Pickup!`,
     html: `
