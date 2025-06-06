@@ -29,7 +29,7 @@ app.use(cors({
   credentials: true
 }));
 
-// ✅ Updated: Explicitly handle preflight requests for all routes
+// ✅ Explicitly handle preflight requests for all routes
 app.options('*', cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -48,10 +48,12 @@ app.use(express.json());
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const publicOrderRoutes = require('./routes/publicOrderRoutes');
 
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/public-order-status', publicOrderRoutes);
 
 app.get('/test', (req, res) => {
   res.json({ message: 'Backend working fine!' });
