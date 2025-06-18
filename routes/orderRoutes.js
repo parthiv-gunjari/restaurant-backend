@@ -23,7 +23,14 @@ router.post('/', async (req, res) => {
     const savedOrder = await newOrder.save();
     console.log("✅ Order saved:", savedOrder);
 
-    await sendOrderConfirmationEmail(email, name, savedOrder._id, itemsHtml);
+    await sendOrderConfirmationEmail({
+      email,
+      name,
+      orderId: savedOrder.orderCode,
+      items: savedOrder.items,
+      transactionId: req.body.transactionId,
+      timestamp: savedOrder.timestamp
+    });
     console.log("📧 Confirmation email sent to:", email);
     res.status(201).json({ message: 'Order placed', order: savedOrder });
   } catch (err) {

@@ -17,6 +17,14 @@ const orderSchema = new mongoose.Schema({
     }
   ],
   notes: { type: String },
+  paymentIntentId: { type: String }, // ✅ Stripe PaymentIntent ID
+  cardBrand: { type: String },
+  last4: { type: String },
+  paymentStatus: {
+    type: String,
+    enum: ['Pending', 'Succeeded', 'Failed'],
+    default: 'Pending'
+  },
   timestamp: { type: Date, default: Date.now },
   status: {
     type: String,
