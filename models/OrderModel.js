@@ -22,7 +22,7 @@ const orderSchema = new mongoose.Schema({
   last4: { type: String },
   paymentStatus: {
     type: String,
-    enum: ['Pending', 'Succeeded', 'Failed'],
+    enum: ['Pending', 'Paid', 'Failed', 'succeeded', 'processing', 'requires_payment_method'],
     default: 'Pending'
   },
   timestamp: { type: Date, default: Date.now },

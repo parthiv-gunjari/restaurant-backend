@@ -41,4 +41,21 @@ router.post("/create-checkout-session", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ✅ Fetch Payment Intent details by ID
+router.get('/create-payment-intent/:id', async (req, res) => {
+  try {
+    const intent = await stripe.paymentIntents.retrieve(req.params.id);
+    const card = intent.charges?.data?.[0]?.payment_method_details?.card;
+
+    res.json({
+      cardBrand: card?.brand,
+      last4: card?.last4,
+    });
+  } catch (error) {
+    console.error('❌ Error fetching payment intent:', error.message);
+    res.status(404).json({ error: 'Payment intent not found' });
+  }
+});
+
 module.exports = router;
