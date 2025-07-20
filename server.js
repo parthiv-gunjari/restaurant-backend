@@ -16,6 +16,7 @@ const allowedOrigins = [
   'http://localhost:3002',
   'https://parthiv-gunjari.github.io',
   'https://parthiv-gunjari.github.io/restaurant-frontend',
+  'https://restaurant-frontend-rf1nt1klq-parthiv-kumar-gunjaris-projects.vercel.app',
   process.env.RENDER_EXTERNAL_URL // dynamically fetched Render URL if set
 ];
 
