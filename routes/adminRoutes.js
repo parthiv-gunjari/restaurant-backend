@@ -1,21 +1,47 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const bcrypt = require('bcryptjs');
+const User = require('../models/UserModel'); // ✅ Updated to unified User model
 
-// 🔐 Admin Login using .env credentials
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
-  if (
-    username === process.env.ADMIN_USERNAME &&
-    password === process.env.ADMIN_PASSWORD
-  ) {
-    const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '1d' });
-    return res.json({ token, message: 'Login successful' });
-  }
+  console.log("🔐 Attempting login for:", username);
 
-  return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const user = await User.findOne({ username });
+    console.log("Found user?", !!user);
+    if (!user || !user.active) {
+      return res.status(401).json({ error: 'Invalid credentials or inactive user' });
+    }
+
+    if (!['admin', 'manager'].includes(user.role)) {
+      return res.status(403).json({ error: 'Access denied: Not authorized for this portal' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    console.log("Password match?", isMatch);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error('❌ JWT_SECRET not defined in environment variables');
+      return res.status(500).json({ error: 'Server misconfiguration' });
+    }
+
+    const token = jwt.sign(
+      { userId: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.json({ token, role: user.role, message: 'Login successful' });
+  } catch (err) {
+    console.error('Login error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 module.exports = router;

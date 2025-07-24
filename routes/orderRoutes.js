@@ -2,9 +2,12 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/OrderModel');
+const MenuItem = require('../models/MenuItemModel'); 
+const AuditLog = require('../models/AuditLogModel');
+const { authenticateUser, authorizeRole, authenticateAdmin } = require('../middleware/authMiddleware');
+const Table = require('../models/TableModel');
 const sendOrderCompletionEmail = require('../utils/sendEmail');
 const sendOrderConfirmationEmail = require('../utils/sendConfirmationEmail');
-const authenticateAdmin = require('../middleware/authMiddleware');
 
 // ==========================
 // POST: Create a New Order (Public)
@@ -19,7 +22,25 @@ router.post('/', async (req, res) => {
     }
 
     const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000); // Simple unique code
-    const newOrder = new Order({ orderCode, name, email, items, notes, status: 'Pending' });
+    const transformedItems = await Promise.all(items.map(async item => {
+      const menuItem = await MenuItem.findById(item._id || item.itemId);
+      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity || 1
+      };
+    }));
+    const newOrder = new Order({
+      orderCode,
+      name,
+      email,
+      items: transformedItems,
+      initialItems: transformedItems, // ✅ Store original items
+      notes,
+      status: 'Pending'
+    });
     const savedOrder = await newOrder.save();
     console.log("✅ Order saved:", savedOrder);
 
@@ -42,7 +63,7 @@ router.post('/', async (req, res) => {
 // ============================================================
 // GET: Pending Orders with Filters + Pagination (Admin Only)
 // ============================================================
-router.get('/', authenticateAdmin, async (req, res) => {
+router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
     const { page = 1, limit = 5, name, email, date } = req.query;
     const skip = (page - 1) * limit;
@@ -70,7 +91,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
 // ============================================================
 // GET: Completed Orders with Filters + Pagination (Admin Only)
 // ============================================================
-router.get('/completed', authenticateAdmin, async (req, res) => {
+router.get('/completed', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
     const { page = 1, limit = 5, name, email, date } = req.query;
     const skip = (page - 1) * limit;
@@ -98,29 +119,55 @@ router.get('/completed', authenticateAdmin, async (req, res) => {
 // ============================================================
 // PATCH: Mark Order as Completed + Send Email (Admin Only)
 // ============================================================
-router.patch('/:id/complete', authenticateAdmin, async (req, res) => {
+router.patch('/:id/complete', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status: 'Completed' },
-      { new: true }
-    );
+    console.log("🔧 Completing order ID:", req.params.id);
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      console.warn("❌ Order not found with ID:", req.params.id);
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    order.status = 'Completed';
+    order.completedAt = new Date();
+    await order.save();
+    console.log("✅ Order marked completed:", order.orderCode);
 
-    console.log(`📦 Marking order ${order._id} as completed...`);
-    await sendOrderCompletionEmail(order.email, order._id);
+    // Reset table if dine-in
+    if (order.orderType === 'dine-in' && order.tableId) {
+      const table = await Table.findById(order.tableId);
+      if (table) {
+        table.status = 'available';
+        table.currentOrderId = null;
+        table.startedAt = null; // ✅ Reset timer
+        await table.save();
+        console.log("🪑 Table status reset:", table.tableNumber);
+      }
+    }
 
-    setTimeout(() => {
-      console.log(`✅ Order ${order._id} completed & email sent.`);
-      res.json({ message: 'Order marked as completed & email sent', order });
-    }, 300);
+   const populatedItems = await Promise.all(order.items.map(async item => {
+  if (!item.name || !item.price) {
+    const menuItem = await MenuItem.findById(item.itemId);
+    if (!menuItem) throw new Error(`Menu item not found for ID: ${item.itemId}`);
+    return { ...item.toObject(), name: menuItem.name, price: menuItem.price };
+  }
+  return item;
+}));
+
+    console.log("📦 Finalized item list:", populatedItems);
+
+    await sendOrderCompletionEmail(order.email, {
+      ...order.toObject(),
+      items: populatedItems
+    });
+    console.log("📧 Email sent to:", order.email);
+
+    res.json({ message: 'Order marked as completed & email sent', order });
   } catch (err) {
-    console.error("❌ Error completing order:", err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error("❌ Error in /:id/complete route:", err.message, err);
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
-
 // ============================================================
 // GET: Order History by Email or Name (Public)
 // ============================================================
@@ -153,7 +200,7 @@ router.get('/history', async (req, res) => {
 // ============================================================
 // GET: Admin Dashboard Analytics (?from=&to=) (Admin Only)
 // ============================================================
-router.get('/analytics', authenticateAdmin, async (req, res) => {
+router.get('/analytics', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
     const { from, to } = req.query;
     const dateFilter = {};
@@ -174,7 +221,15 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     ]);
 
     const totalRevenue = all.reduce((sum, order) => {
-      return sum + order.items.reduce((s, item) => s + item.price * item.quantity, 0);
+      if (!order.items || order.items.length === 0) return sum;
+      return (
+        sum +
+        order.items.reduce((subtotal, item) => {
+          const price = item.price || 0;
+          const quantity = item.quantity || 0;
+          return subtotal + price * quantity;
+        }, 0)
+      );
     }, 0);
 
     const itemMap = {};
@@ -202,7 +257,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
   }
 });
 // GET: Revenue data for chart
-router.get('/revenue-chart', authenticateAdmin, async (req, res) => {
+router.get('/revenue-chart', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
     const { range } = req.query;
     const now = new Date();
@@ -255,6 +310,201 @@ router.get('/revenue-chart', authenticateAdmin, async (req, res) => {
   } catch (err) {
     console.error("❌ Error in revenue-chart:", err);
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+// ✅ POST: Create Dine-In Order (Waiter Only)
+router.post('/dinein', authenticateUser, authorizeRole('admin', 'waiter', 'manager'), async (req, res) => {
+  try {
+    const { items, notes, tableId } = req.body;
+
+    if (!tableId || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Invalid order data' });
+    }
+
+    const table = await Table.findById(tableId);
+    if (!table) return res.status(404).json({ error: 'Table not found' });
+    if (table.status === 'occupied') {
+      return res.status(409).json({ error: 'Table is already occupied' });
+    }
+
+    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
+
+    // Transform incoming items to include only itemId, price, and quantity
+    const transformedItems = await Promise.all(
+      items.map(async item => {
+        const menuItem = await MenuItem.findById(item._id || item.itemId);
+        if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+        return {
+          itemId: menuItem._id,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity: item.quantity || 1
+        };
+      })
+    );
+
+    const newOrder = new Order({
+      orderCode,
+      name: `Table-${table.tableNumber}`,
+      email: 'dinein@parthivskitchen.com',
+      items: transformedItems,
+      initialItems: transformedItems, // ✅ Store original items
+      notes,
+      status: 'Pending',
+      tableId,
+      waiterId: req.user.userId,
+      orderType: 'dine-in',
+      startedAt: new Date() // ✅ Set order startedAt for dine-in
+    });
+
+    console.log("🚀 Dine-in order to be saved:", newOrder);
+    const savedOrder = await newOrder.save();
+    console.log("✅ Dine-in order saved:", savedOrder);
+
+    table.status = 'occupied';
+    table.currentOrderId = savedOrder._id;
+    table.startedAt = new Date(); // ✅ Set table timer
+    await table.save();
+
+    res.status(201).json({ message: 'Dine-in order placed', order: savedOrder });
+  } catch (err) {
+    console.error("❌ Dine-in order error:", err.stack || err);
+    res.status(500).json({ error: 'Failed to place dine-in order' });
+  }
+});
+// 🔧 PATCH: Admin or Manager modifies order (item qty, cancel, etc.)
+router.patch('/:id/modify', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    console.log("📨 Incoming PATCH /modify body:", req.body);
+    const { updatedItems, reason } = req.body;
+
+    if (!Array.isArray(updatedItems) || updatedItems.some(i => !i.itemId || typeof i.itemId !== 'string')) {
+      return res.status(400).json({ error: 'Invalid updatedItems format: itemId missing or not a string' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    console.log("🧾 Modifying order ID:", req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (order.status === 'Completed') return res.status(400).json({ error: 'Cannot modify completed orders' });
+
+    const before = order.items.map(item => ({ ...item.toObject?.() || item }));
+
+    console.log("🔧 Updating items:", updatedItems);
+    const transformedItems = await Promise.all(updatedItems.map(async item => {
+      const id = item.itemId || item._id;
+      if (!id) {
+        throw new Error(`Missing itemId or _id for item: ${JSON.stringify(item)}`);
+      }
+      const menuItem = await MenuItem.findById(id.toString());
+      if (!menuItem) throw new Error(`Menu item not found: ${id}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity
+      };
+    }));
+
+    order.items = transformedItems;
+    await order.save();
+    console.log("✅ Order successfully updated:", order._id);
+
+    const log = new AuditLog({
+      action: 'Order Modified',
+      performedBy: req.user.userId,
+      orderId: order._id,
+      tableId: order.tableId,
+      before,
+      after: transformedItems,
+      reason
+    });
+    await log.save();
+
+    res.json({ message: 'Order updated & logged', order });
+  } catch (err) {
+    console.error('❌ Order modification failed:', err);
+    res.status(500).json({ error: 'Modification error' });
+  }
+});
+// ✅ PATCH: Update order items only (used by Edit button in modal)
+router.patch('/:id/edit', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Invalid items provided' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    const transformedItems = await Promise.all(items.map(async item => {
+      const menuItem = await MenuItem.findById(item.itemId);
+      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity
+      };
+    }));
+
+    order.items = transformedItems;
+    await order.save();
+
+    res.status(200).json({ message: 'Order updated', order });
+  } catch (err) {
+    console.error("❌ Error updating order items:", err.stack || err);
+    res.status(500).json({ error: 'Failed to update order items', details: err.message });
+  }
+});
+// ✅ GET: Get single order by ID (used for dine-in fetch)
+// ✅ GET: Get all modifications (global) for all orders (Admin/Manager Only)
+router.get('/modifications', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    console.log("🔍 Incoming request to /modifications by:", req.user); // Who is requesting?
+
+    const logsRaw = await AuditLog.find({}).sort({ createdAt: -1 });
+    console.log("📦 Logs fetched before populate:", logsRaw.length);
+
+    // Now try populating only if data exists
+    const logs = await AuditLog.populate(logsRaw, { path: 'performedBy', select: 'name email role' });
+
+    console.log("✅ Logs populated successfully");
+    res.status(200).json(logs);
+  } catch (err) {
+    console.error("❌ Failed to fetch global audit logs:", err.message);
+    res.status(500).json({ error: 'Failed to fetch modification logs', details: err.message });
+  }
+});
+// ✅ GET: Get single order by ID (used for dine-in fetch)
+router.get('/:id', authenticateUser, authorizeRole('admin', 'waiter', 'manager'), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('items.itemId');
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // Ensure initialItems exists and has populated names and prices
+    if (!order.initialItems || order.initialItems.length === 0) {
+      order.initialItems = order.items.map(i => ({ ...(i.toObject?.() || i) }));
+    }
+
+    res.json(order);
+  } catch (err) {
+    console.error("❌ Error fetching order:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ✅ GET: Get all modifications for a given order (Admin/Manager Only)
+router.get('/:id/modifications', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const logs = await AuditLog.find({ orderId: req.params.id })
+      .populate('performedBy', 'name email role')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(logs);
+  } catch (err) {
+    console.error("❌ Failed to fetch audit logs:", err);
+    res.status(500).json({ error: 'Failed to fetch modifications', details: err.message });
   }
 });
 module.exports = router;
