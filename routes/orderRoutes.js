@@ -346,7 +346,7 @@ router.post('/dinein', authenticateUser, authorizeRole('admin', 'waiter', 'manag
     const newOrder = new Order({
       orderCode,
       name: `Table-${table.tableNumber}`,
-      email: 'dinein@parthivskitchen.com',
+      email: 'parthivskitchen7@gmail.com',
       items: transformedItems,
       initialItems: transformedItems, // ✅ Store original items
       notes,

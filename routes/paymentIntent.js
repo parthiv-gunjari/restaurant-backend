@@ -3,6 +3,7 @@ const sendConfirmationEmail = require('../utils/sendConfirmationEmail'); // ✅ 
 const express = require("express");
 const router = express.Router();
 const Stripe = require("stripe");
+const MenuItem = require('../models/MenuItemModel'); // ✅ THIS LINE IS MISSING
 require("dotenv").config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -40,20 +41,33 @@ router.post('/save-order', async (req, res) => {
   try {
     const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
 
+    // ✅ Transform items with itemId, name, price, quantity
+    const transformedItems = await Promise.all(
+      cartItems.map(async (item) => {
+        const menuItem = await MenuItem.findById(item._id || item.itemId);
+        if (!menuItem) throw new Error(`Menu item not found: ${item._id || item.itemId}`);
+        return {
+          itemId: menuItem._id,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity: item.quantity || 1
+        };
+      })
+    );
+
     const order = new Order({
       orderCode,
       name: form.name,
       email: form.email,
       notes: form.notes,
-      items: cartItems.map(item => ({
-        _id: item._id,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity
-      })),
+      items: transformedItems,
+      initialItems: transformedItems, // ✅ store original items
       paymentIntentId,
       paymentStatus,
-      status: 'Pending'
+      cardBrand,
+      last4,
+      status: 'Pending',
+      orderType: 'online'
     });
 
     await order.save();
