@@ -7,7 +7,8 @@ const orderSchema = new mongoose.Schema({
     unique: true
   },
   name: { type: String, required: true },
-  email: { type: String, required: true },
+  email: { type: String }, // changed to optional
+  phone: { type: String }, // new field
  items: [
   {
     itemId: {
@@ -20,6 +21,11 @@ const orderSchema = new mongoose.Schema({
     quantity: {
       type: Number,
       required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'in-progress', 'ready'],
+      default: 'pending'
     }
   }
 ],
@@ -35,6 +41,11 @@ const orderSchema = new mongoose.Schema({
       quantity: {
         type: Number,
         required: true
+      },
+      status: {
+        type: String,
+        enum: ['pending', 'in-progress', 'ready'],
+        default: 'pending'
       }
     }
   ],
@@ -58,8 +69,32 @@ const orderSchema = new mongoose.Schema({
   last4: { type: String },
   paymentStatus: {
     type: String,
-    enum: ['Pending', 'Paid', 'Failed', 'succeeded', 'processing', 'requires_payment_method'],
-    default: 'Pending'
+    enum: ['paid', 'unpaid'],
+    default: 'unpaid'
+  },
+  paymentMode: {
+    type: String,
+    enum: ['cash', 'card', 'upi', 'mixed', 'other'],
+    default: 'cash'
+  },
+  splitPayDetails: [
+    {
+      payerName: String,
+      amount: Number,
+      items: [String] // optional item breakdown
+    }
+  ],
+  discount: {
+    type: Number,
+    default: 0
+  },
+  tax: {
+    type: Number,
+    default: 0
+  },
+  receiptPrinted: {
+    type: Boolean,
+    default: false
   },
   timestamp: { type: Date, default: Date.now },
   status: {
@@ -71,11 +106,12 @@ const orderSchema = new mongoose.Schema({
   waiterId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   orderType: {
     type: String,
-    enum: ['online', 'dine-in', 'takeout'],
+    enum: ['online', 'dinein', 'walkin', 'togo', 'callin'],
     default: 'online'
   },
   startedAt: { type: Date, default: null },
-  completedAt: { type: Date, default: null }
+  completedAt: { type: Date, default: null },
+  startedCookingAt: { type: Date, default: null }
 });
 
 module.exports = mongoose.model('Order', orderSchema);

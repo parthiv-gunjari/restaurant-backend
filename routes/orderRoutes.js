@@ -1,3 +1,4 @@
+
 // /server/routes/orderRoutes.js
 const express = require('express');
 const router = express.Router();
@@ -15,9 +16,9 @@ const sendOrderConfirmationEmail = require('../utils/sendConfirmationEmail');
 router.post('/', async (req, res) => {
   try {
     console.log("🛒 Incoming order payload:", req.body);
-    const { name, email, items, notes, itemsHtml } = req.body;
+    const { name, email, phone, orderType, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes, itemsHtml } = req.body;
 
-    if (!name || !email || !Array.isArray(items) || items.length === 0) {
+    if (!name || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Invalid order data' });
     }
 
@@ -36,9 +37,16 @@ router.post('/', async (req, res) => {
       orderCode,
       name,
       email,
+      phone,
       items: transformedItems,
       initialItems: transformedItems, // ✅ Store original items
       notes,
+      orderType: orderType || 'online',
+      paymentStatus: paymentStatus || 'Pending',
+      paymentMode,
+      discount,
+      tax,
+      splitPayment,
       status: 'Pending'
     });
     const savedOrder = await newOrder.save();
@@ -65,8 +73,7 @@ router.post('/', async (req, res) => {
 // ============================================================
 router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
-    const { page = 1, limit = 5, name, email, date } = req.query;
-    const skip = (page - 1) * limit;
+    const { limit = 100, name, email, date } = req.query;
     const query = { status: 'Pending' };
 
     if (name) query.name = { $regex: name, $options: 'i' };
@@ -78,10 +85,12 @@ router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req,
       query.timestamp = { $gte: dayStart, $lte: dayEnd };
     }
 
-    const total = await Order.countDocuments(query);
-    const orders = await Order.find(query).sort({ timestamp: -1 }).skip(skip).limit(parseInt(limit));
+    const orders = await Order.find(query)
+      .select('+initialItems')
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit));
 
-    res.json({ orders, currentPage: parseInt(page), totalPages: Math.ceil(total / limit), totalOrders: total });
+    res.json({ orders });
   } catch (err) {
     console.error("❌ Error fetching pending orders:", err);
     res.status(500).json({ error: 'Internal server error' });
@@ -146,13 +155,20 @@ router.patch('/:id/complete', authenticateUser, authorizeRole('admin', 'manager'
     }
 
    const populatedItems = await Promise.all(order.items.map(async item => {
-  if (!item.name || !item.price) {
-    const menuItem = await MenuItem.findById(item.itemId);
-    if (!menuItem) throw new Error(`Menu item not found for ID: ${item.itemId}`);
-    return { ...item.toObject(), name: menuItem.name, price: menuItem.price };
-  }
-  return item;
-}));
+    try {
+      const id = item.itemId?._id?.toString?.() || item.itemId?.toString?.();
+      if (!item.name || !item.price) {
+        const menuItem = await MenuItem.findById(id);
+        if (!menuItem) throw new Error(`Menu item not found for ID: ${id}`);
+        const base = typeof item.toObject === 'function' ? item.toObject() : item;
+        return { ...base, name: menuItem.name, price: menuItem.price };
+      }
+      return item;
+    } catch (err) {
+      console.error("❌ Error processing item in completion:", err);
+      throw err;
+    }
+  }));
 
     console.log("📦 Finalized item list:", populatedItems);
 
@@ -507,4 +523,242 @@ router.get('/:id/modifications', authenticateUser, authorizeRole('admin', 'manag
     res.status(500).json({ error: 'Failed to fetch modifications', details: err.message });
   }
 });
+// ✅ PATCH: Start cooking (sets startedCookingAt timestamp)
+router.patch('/:id/start-cooking', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    order.startedCookingAt = new Date();
+    await order.save();
+
+    res.json({ message: 'Cooking started', startedCookingAt: order.startedCookingAt });
+  } catch (err) {
+    console.error("❌ Error starting cooking:", err);
+    res.status(500).json({ error: 'Failed to start cooking' });
+  }
+});
+// ✅ POST: Create In-Store Order (Admin or Manager)
+router.post('/instore', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { name, email, phone, orderType, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
+
+    if (!name || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000); // Unique code
+
+    const transformedItems = await Promise.all(items.map(async item => {
+      const menuItem = await MenuItem.findById(item._id || item.itemId);
+      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity || 1
+      };
+    }));
+
+    const newOrder = new Order({
+      orderCode,
+      name,
+      email,
+      phone,
+      items: transformedItems,
+      initialItems: transformedItems,
+      notes,
+      orderType: orderType || 'walkin',
+      paymentStatus: paymentStatus || 'Pending',
+      paymentMode,
+      discount,
+      tax,
+      splitPayment,
+      status: 'Pending'
+    });
+
+    const savedOrder = await newOrder.save();
+    console.log("✅ In-store order placed:", savedOrder);
+
+    res.status(201).json({ message: 'In-store order placed successfully', order: savedOrder });
+  } catch (err) {
+    console.error("❌ Error placing in-store order:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ✅ POST: Create Walk-In Order (Admin or Manager)
+router.post('/walkin', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { name, email, phone, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
+
+    if (!name || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
+
+    const transformedItems = await Promise.all(items.map(async item => {
+      const menuItem = await MenuItem.findById(item._id || item.itemId);
+      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity || 1
+      };
+    }));
+
+    const newOrder = new Order({
+      orderCode,
+      name,
+      email,
+      phone,
+      items: transformedItems,
+      initialItems: transformedItems,
+      notes,
+      orderType: 'walkin',
+      paymentStatus: paymentStatus || 'Pending',
+      paymentMode,
+      discount,
+      tax,
+      splitPayment,
+      status: 'Pending'
+    });
+
+    const savedOrder = await newOrder.save();
+    console.log("✅ Walk-in order placed:", savedOrder);
+
+    res.status(201).json({ message: 'Walk-in order placed successfully', order: savedOrder });
+  } catch (err) {
+    console.error("❌ Error placing walk-in order:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ✅ POST: Create To-Go Order (Admin or Manager)
+router.post('/togo', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { name, email, phone, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
+
+    if (!name || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
+
+    const transformedItems = await Promise.all(items.map(async item => {
+      const menuItem = await MenuItem.findById(item._id || item.itemId);
+      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity || 1
+      };
+    }));
+
+    const newOrder = new Order({
+      orderCode,
+      name,
+      email,
+      phone,
+      items: transformedItems,
+      initialItems: transformedItems,
+      notes,
+      orderType: 'togo',
+      paymentStatus: paymentStatus || 'Pending',
+      paymentMode,
+      discount,
+      tax,
+      splitPayment,
+      status: 'Pending'
+    });
+
+    const savedOrder = await newOrder.save();
+    console.log("✅ To-go order placed:", savedOrder);
+
+    res.status(201).json({ message: 'To-go order placed successfully', order: savedOrder });
+  } catch (err) {
+    console.error("❌ Error placing to-go order:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ✅ POST: Create Call-In Order (Admin or Manager)
+router.post('/callin', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { name, email, phone, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
+
+    if (!name || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
+
+    const transformedItems = await Promise.all(items.map(async item => {
+      const menuItem = await MenuItem.findById(item._id || item.itemId);
+      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      return {
+        itemId: menuItem._id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity || 1
+      };
+    }));
+
+    const newOrder = new Order({
+      orderCode,
+      name,
+      email,
+      phone,
+      items: transformedItems,
+      initialItems: transformedItems,
+      notes,
+      orderType: 'callin',
+      paymentStatus: paymentStatus || 'Pending',
+      paymentMode,
+      discount,
+      tax,
+      splitPayment,
+      status: 'Pending'
+    });
+
+    const savedOrder = await newOrder.save();
+    console.log("✅ Call-in order placed:", savedOrder);
+
+    res.status(201).json({ message: 'Call-in order placed successfully', order: savedOrder });
+  } catch (err) {
+    console.error("❌ Error placing call-in order:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// ✅ PATCH: Update item-level cooking status (for Kitchen Display System)
+router.patch('/:orderId/item/:itemId/status', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+  try {
+    const { orderId, itemId } = req.params;
+    const { status } = req.body;
+
+    if (!['pending', 'in-progress', 'ready'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status value. Must be one of: pending, in-progress, ready.' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    const itemToUpdate = order.items.find(item => item.itemId.toString() === itemId.toString());
+    if (!itemToUpdate) return res.status(404).json({ error: 'Item not found in order' });
+
+    itemToUpdate.status = status;
+    await order.save();
+
+    res.json({ message: 'Item status updated', item: itemToUpdate });
+  } catch (err) {
+    console.error("❌ Error updating item status:", err);
+    res.status(500).json({ error: 'Failed to update item status' });
+  }
+});
+
 module.exports = router;
