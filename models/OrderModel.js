@@ -106,7 +106,7 @@ paymentStatus: {
   waiterId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   orderType: {
     type: String,
-    enum: ['online', 'dinein', 'walkin', 'togo', 'callin'],
+    enum: ['online', 'dine-in', 'walkin', 'togo', 'callin'],
     default: 'online'
   },
   startedAt: { type: Date, default: null },
