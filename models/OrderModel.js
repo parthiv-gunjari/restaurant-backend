@@ -67,11 +67,11 @@ const orderSchema = new mongoose.Schema({
   paymentIntentId: { type: String }, 
   cardBrand: { type: String },
   last4: { type: String },
-  paymentStatus: {
-    type: String,
-    enum: ['paid', 'unpaid'],
-    default: 'unpaid'
-  },
+paymentStatus: {
+  type: String,
+  enum: ['succeeded', 'pending', 'failed', 'canceled'],
+  default: 'pending',
+},
   paymentMode: {
     type: String,
     enum: ['cash', 'card', 'upi', 'mixed', 'other'],

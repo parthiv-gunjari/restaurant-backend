@@ -12,7 +12,18 @@ router.post("/create-payment-intent", async (req, res) => {
   const { items, customer } = req.body;
 
   try {
-    const amount = items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100;
+    const menuItems = await Promise.all(
+      items.map(async (item) => {
+        const menuItem = await MenuItem.findById(item.itemId);
+        if (!menuItem) throw new Error(`Menu item not found: ${item.itemId}`);
+        return {
+          price: menuItem.price,
+          quantity: item.quantity
+        };
+      })
+    );
+
+    const amount = menuItems.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100;
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount),
