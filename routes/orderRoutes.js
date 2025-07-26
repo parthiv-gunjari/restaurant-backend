@@ -84,6 +84,9 @@ router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req,
       dayEnd.setHours(23, 59, 59, 999);
       query.timestamp = { $gte: dayStart, $lte: dayEnd };
     }
+    if (req.query.orderType) {
+      query.orderType = req.query.orderType;
+    }
 
     const orders = await Order.find(query)
       .select('+initialItems')
@@ -328,71 +331,100 @@ router.get('/revenue-chart', authenticateUser, authorizeRole('admin', 'manager')
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-// ✅ POST: Create Dine-In Order (Waiter Only)
-router.post('/dinein', authenticateUser, authorizeRole('admin', 'waiter', 'manager'), async (req, res) => {
-  try {
-    const { items, notes, tableId } = req.body;
+// ✅ POST: Create Dine-In Order (Waiter, Manager, Admin)
+router.post(
+  '/dinein',
+  authenticateUser,
+  authorizeRole('waiter', 'manager', 'admin'),
+  async (req, res) => {
+    console.log('[DEBUG] Dine-in order placed by:', req.user);
+    console.log('✅ /dinein route hit');
+    console.log('🧾 Authenticated User:', req.user);
+    console.log('📦 Request Body:', req.body);
 
-    if (!tableId || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Invalid order data' });
+    try {
+      const { items, notes, tableId } = req.body;
+
+      // Basic input validation
+      if (!tableId || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Invalid order data' });
+      }
+
+      // Validate table
+      const table = await Table.findById(tableId);
+      if (!table) {
+        return res.status(404).json({ error: 'Table not found' });
+      }
+      if (table.status === 'occupied') {
+        return res.status(409).json({ error: 'Table is already occupied' });
+      }
+
+      // Validate authenticated user info
+      const user = req.user;
+      if (!user || !user.userId || !user.username || !user.role) {
+        return res.status(403).json({ error: 'Unauthorized user data' });
+      }
+
+      // Order Code
+      const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
+
+      // Resolve menu item details from DB
+      const transformedItems = await Promise.all(
+        items.map(async item => {
+          const menuItem = await MenuItem.findById(item._id || item.itemId);
+          if (!menuItem)
+            throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+          return {
+            itemId: menuItem._id,
+            name: menuItem.name,
+            price: menuItem.price,
+            quantity: item.quantity || 1
+          };
+        })
+      );
+
+      // Create new Order
+      const newOrder = new Order({
+        orderCode,
+        name: `Dine-In Table ${table.tableNumber}`,
+        email: 'parthivskitchen7@gmail.com', // Default or system email
+        items: transformedItems,
+        initialItems: transformedItems,
+        notes,
+        status: 'Pending',
+        tableId,
+        waiterId: user.userId,
+        waiterName: user.username,
+        orderType: 'dine-in',
+        startedAt: new Date()
+      });
+
+      console.log('🚀 Dine-in order to be saved:', newOrder);
+      const savedOrder = await newOrder.save();
+      console.log('✅ Dine-in order saved:', savedOrder);
+
+      // Update table status
+      table.status = 'occupied';
+      table.currentOrderId = savedOrder._id;
+      table.startedAt = new Date();
+      table.updatedBy = user.userId;
+      await table.save();
+
+      res.status(201).json({ message: 'Dine-in order placed', order: savedOrder });
+    } catch (err) {
+      console.error('❌ Dine-in order error:', err.stack || err);
+      res.status(500).json({ error: 'Failed to place dine-in order' });
     }
-
-    const table = await Table.findById(tableId);
-    if (!table) return res.status(404).json({ error: 'Table not found' });
-    if (table.status === 'occupied') {
-      return res.status(409).json({ error: 'Table is already occupied' });
-    }
-
-    const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
-
-    // Transform incoming items to include only itemId, price, and quantity
-    const transformedItems = await Promise.all(
-      items.map(async item => {
-        const menuItem = await MenuItem.findById(item._id || item.itemId);
-        if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
-        return {
-          itemId: menuItem._id,
-          name: menuItem.name,
-          price: menuItem.price,
-          quantity: item.quantity || 1
-        };
-      })
-    );
-
-    const newOrder = new Order({
-      orderCode,
-      name: `Table-${table.tableNumber}`,
-      email: 'parthivskitchen7@gmail.com',
-      items: transformedItems,
-      initialItems: transformedItems, // ✅ Store original items
-      notes,
-      status: 'Pending',
-      tableId,
-      waiterId: req.user.userId,
-      orderType: 'dine-in',
-      startedAt: new Date() // ✅ Set order startedAt for dine-in
-    });
-
-    console.log("🚀 Dine-in order to be saved:", newOrder);
-    const savedOrder = await newOrder.save();
-    console.log("✅ Dine-in order saved:", savedOrder);
-
-    table.status = 'occupied';
-    table.currentOrderId = savedOrder._id;
-    table.startedAt = new Date(); // ✅ Set table timer
-    await table.save();
-
-    res.status(201).json({ message: 'Dine-in order placed', order: savedOrder });
-  } catch (err) {
-    console.error("❌ Dine-in order error:", err.stack || err);
-    res.status(500).json({ error: 'Failed to place dine-in order' });
   }
-});
+);
 // 🔧 PATCH: Admin or Manager modifies order (item qty, cancel, etc.)
+const mongoose = require('mongoose');
 router.patch('/:id/modify', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
   try {
     console.log("📨 Incoming PATCH /modify body:", req.body);
     const { updatedItems, reason } = req.body;
+
+
 
     if (!Array.isArray(updatedItems) || updatedItems.some(i => !i.itemId || typeof i.itemId !== 'string')) {
       return res.status(400).json({ error: 'Invalid updatedItems format: itemId missing or not a string' });
@@ -424,18 +456,20 @@ router.patch('/:id/modify', authenticateUser, authorizeRole('admin', 'manager'),
     order.items = transformedItems;
     await order.save();
     console.log("✅ Order successfully updated:", order._id);
+    const modificationSessionId = new mongoose.Types.ObjectId();
+    // Log the modification in AuditLog withtableId included and modificationSessionId
 
-    const log = new AuditLog({
-      action: 'Order Modified',
-      performedBy: req.user.userId,
-      orderId: order._id,
-      tableId: order.tableId,
-      before,
-      after: transformedItems,
-      reason
-    });
-    await log.save();
-
+   await AuditLog.create({
+    action: 'Modify Order',
+    performedBy: req.user.userId,
+    performedByName: req.user.username || 'System.',
+    orderId: order._id,
+    tableId: order.tableId,
+    before:order.initialItems,
+    after:transformedItems,
+    reason:req.body.reason || 'Edited via admin UI',
+    modificationSessionId: modificationSessionId
+  })
     res.json({ message: 'Order updated & logged', order });
   } catch (err) {
     console.error('❌ Order modification failed:', err);
@@ -473,23 +507,26 @@ router.patch('/:id/edit', authenticateUser, authorizeRole('admin', 'manager'), a
     res.status(500).json({ error: 'Failed to update order items', details: err.message });
   }
 });
-// ✅ GET: Get single order by ID (used for dine-in fetch)
-// ✅ GET: Get all modifications (global) for all orders (Admin/Manager Only)
-router.get('/modifications', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+// ✅ GET: Get all modifications (global) for all orders (Admin Only)
+router.get('/modifications', authenticateAdmin, async (req, res) => {
   try {
-    console.log("🔍 Incoming request to /modifications by:", req.user); // Who is requesting?
+    const logs = await AuditLog.find()
+      .populate('performedBy', 'fullName email')
+      .populate('tableId', 'tableNumber position name')
+      .populate('orderId', 'orderCode')
+      .sort({ createdAt: -1 });
 
-    const logsRaw = await AuditLog.find({}).sort({ createdAt: -1 });
-    console.log("📦 Logs fetched before populate:", logsRaw.length);
+    const response = logs.map(log => ({
+      ...log.toObject(),
+      orderCode: log.orderId?.orderCode,
+      table: log.tableId || null,
+      performedBy: log.performedBy || {},
+    }));
 
-    // Now try populating only if data exists
-    const logs = await AuditLog.populate(logsRaw, { path: 'performedBy', select: 'name email role' });
-
-    console.log("✅ Logs populated successfully");
-    res.status(200).json(logs);
+    res.json(response);
   } catch (err) {
-    console.error("❌ Failed to fetch global audit logs:", err.message);
-    res.status(500).json({ error: 'Failed to fetch modification logs', details: err.message });
+    console.error('Error fetching audit logs:', err);
+    res.status(500).json({ error: 'Failed to fetch audit logs' });
   }
 });
 // ✅ GET: Get single order by ID (used for dine-in fetch)
@@ -539,7 +576,7 @@ router.patch('/:id/start-cooking', authenticateUser, authorizeRole('admin', 'man
   }
 });
 // ✅ POST: Create In-Store Order (Admin or Manager)
-router.post('/instore', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.post('/instore', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
   try {
     const { name, email, phone, orderType, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
 
@@ -550,8 +587,13 @@ router.post('/instore', authenticateUser, authorizeRole('admin', 'manager'), asy
     const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000); // Unique code
 
     const transformedItems = await Promise.all(items.map(async item => {
-      const menuItem = await MenuItem.findById(item._id || item.itemId);
-      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      const id = item.itemId || item._id;
+      if (!id) {
+        console.error("⚠️ Missing itemId or _id in item:", item);
+        throw new Error('Missing itemId in request item');
+      }
+      const menuItem = await MenuItem.findById(id);
+      if (!menuItem) throw new Error(`Menu item not found: ${id}`);
       return {
         itemId: menuItem._id,
         name: menuItem.name,
@@ -588,7 +630,7 @@ router.post('/instore', authenticateUser, authorizeRole('admin', 'manager'), asy
 });
 
 // ✅ POST: Create Walk-In Order (Admin or Manager)
-router.post('/walkin', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.post('/walkin', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
   try {
     const { name, email, phone, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
 
@@ -599,8 +641,13 @@ router.post('/walkin', authenticateUser, authorizeRole('admin', 'manager'), asyn
     const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
 
     const transformedItems = await Promise.all(items.map(async item => {
-      const menuItem = await MenuItem.findById(item._id || item.itemId);
-      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      const id = item.itemId || item._id;
+      if (!id) {
+        console.error("⚠️ Missing itemId or _id in item:", item);
+        throw new Error('Missing itemId in request item');
+      }
+      const menuItem = await MenuItem.findById(id);
+      if (!menuItem) throw new Error(`Menu item not found: ${id}`);
       return {
         itemId: menuItem._id,
         name: menuItem.name,
@@ -637,7 +684,7 @@ router.post('/walkin', authenticateUser, authorizeRole('admin', 'manager'), asyn
 });
 
 // ✅ POST: Create To-Go Order (Admin or Manager)
-router.post('/togo', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.post('/togo', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
   try {
     const { name, email, phone, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
 
@@ -648,8 +695,13 @@ router.post('/togo', authenticateUser, authorizeRole('admin', 'manager'), async 
     const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
 
     const transformedItems = await Promise.all(items.map(async item => {
-      const menuItem = await MenuItem.findById(item._id || item.itemId);
-      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      const id = item.itemId || item._id;
+      if (!id) {
+        console.error("⚠️ Missing itemId or _id in item:", item);
+        throw new Error('Missing itemId in request item');
+      }
+      const menuItem = await MenuItem.findById(id);
+      if (!menuItem) throw new Error(`Menu item not found: ${id}`);
       return {
         itemId: menuItem._id,
         name: menuItem.name,
@@ -686,7 +738,7 @@ router.post('/togo', authenticateUser, authorizeRole('admin', 'manager'), async 
 });
 
 // ✅ POST: Create Call-In Order (Admin or Manager)
-router.post('/callin', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.post('/callin', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
   try {
     const { name, email, phone, paymentStatus, paymentMode, discount, tax, splitPayment, items, notes } = req.body;
 
@@ -697,8 +749,13 @@ router.post('/callin', authenticateUser, authorizeRole('admin', 'manager'), asyn
     const orderCode = 'ORD' + Math.floor(100000 + Math.random() * 900000);
 
     const transformedItems = await Promise.all(items.map(async item => {
-      const menuItem = await MenuItem.findById(item._id || item.itemId);
-      if (!menuItem) throw new Error(`Menu item not found: ${item.itemId || item._id}`);
+      const id = item.itemId || item._id;
+      if (!id) {
+        console.error("⚠️ Missing itemId or _id in item:", item);
+        throw new Error('Missing itemId in request item');
+      }
+      const menuItem = await MenuItem.findById(id);
+      if (!menuItem) throw new Error(`Menu item not found: ${id}`);
       return {
         itemId: menuItem._id,
         name: menuItem.name,

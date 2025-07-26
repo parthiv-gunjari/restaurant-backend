@@ -16,7 +16,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials or inactive user' });
     }
 
-    if (!['admin', 'manager'].includes(user.role)) {
+    if (!['admin', 'manager', 'waiter'].includes(user.role)) {
       return res.status(403).json({ error: 'Access denied: Not authorized for this portal' });
     }
 

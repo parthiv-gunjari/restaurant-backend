@@ -2,13 +2,33 @@ const express = require('express');
 const router = express.Router();
 const Table = require('../models/TableModel');
 const { authenticateUser, authorizeRole, authenticateAdmin } = require('../middleware/authMiddleware');
+const Order = require('../models/OrderModel');
+const User = require('../models/UserModel');
 
 // 🔄 GET all tables (waiter/manager/admin)
 router.get('/', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
   try {
-    const tables = await Table.find().sort({ tableNumber: 1 });
-    res.json(tables);
+    const tables = await Table.find().sort({ tableNumber: 1 }).lean();
+
+    const tablesWithWaiterName = await Promise.all(
+      tables.map(async (table) => {
+        if (table.currentOrderId) {
+          const order = await Order.findById(table.currentOrderId).populate('waiterId', 'fullName username');
+          if (order && order.waiterId) {
+            table.waiterName = order.waiterId.fullName || order.waiterId.username;
+          } else {
+            table.waiterName = 'N/A';
+          }
+        } else {
+          table.waiterName = 'N/A';
+        }
+        return table;
+      })
+    );
+
+    res.json(tablesWithWaiterName);
   } catch (err) {
+    console.error('Failed to fetch tables:', err);
     res.status(500).json({ error: 'Failed to fetch tables' });
   }
 });

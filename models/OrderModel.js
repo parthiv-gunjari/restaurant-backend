@@ -53,6 +53,7 @@ const orderSchema = new mongoose.Schema({
     {
       modifiedAt: { type: Date, default: Date.now },
       modifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      modifiedByName: { type: String },
       action: { type: String, enum: ['add', 'remove', 'update', 'cancel'], required: true },
       item: {
         itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'MenuItem' },
@@ -104,6 +105,7 @@ paymentStatus: {
   },
   tableId: { type: mongoose.Schema.Types.ObjectId, ref: 'Table', default: null },
   waiterId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  waiterName: { type: String, default: null },
   orderType: {
     type: String,
     enum: ['online', 'dine-in', 'walkin', 'togo', 'callin'],

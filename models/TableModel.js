@@ -12,10 +12,10 @@ const tableSchema = new mongoose.Schema({
     y: { type: Number, default: 0 }
   },
   currentOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', default: null },
-
-  // ✅ Add this line:
-  startedAt: { type: Date, default: null }
-
+  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  startedAt: { type: Date, default: null },
+  waiterId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  waiterName: { type: String, default: null }
 }, {
   timestamps: true
 });

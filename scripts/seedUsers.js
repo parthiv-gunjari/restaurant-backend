@@ -13,26 +13,27 @@ async function seedUsers() {
     await User.deleteMany({});
     console.log('Old users removed');
 
-    const rawUsers = [
-      { username: 'waiter1', password: 'waiter123', role: 'waiter' },
-      { username: 'waiter2', password: 'waiter123', role: 'waiter' },
-      { username: 'waiter3', password: 'waiter123', role: 'waiter' },
-      { username: 'parthiv', password: 'manager123', role: 'manager' },
-      { username: 'divya', password: 'manager123', role: 'manager' },
-      { username: 'admin', password: 'admin1234', role: 'admin' } // 👈 NEW
-    ];
+   const rawUsers = [
+  { username: 'waiter1', password: 'waiter123', role: 'waiter', fullName: 'Waiter One' },
+  { username: 'waiter2', password: 'waiter123', role: 'waiter', fullName: 'Waiter Two' },
+  { username: 'waiter3', password: 'waiter123', role: 'waiter', fullName: 'Waiter Three' },
+  { username: 'parthiv', password: 'manager123', role: 'manager', fullName: 'Parthiv Kumar' },
+  { username: 'divya', password: 'manager123', role: 'manager', fullName: 'Divya Sri' },
+  { username: 'admin', password: 'admin1234', role: 'admin', fullName: 'Admin User' }
+];
 
     const users = await Promise.all(
-  rawUsers.map(async (user) => {
-    const hashed = await bcrypt.hash(user.password, 10);
-    return {
-      username: user.username,
-      password: hashed, // ✅ store in password
-      role: user.role,
-      active: true
-    };
-  })
-);
+      rawUsers.map(async (user) => {
+        const hashed = await bcrypt.hash(user.password, 10);
+      return {
+  username: user.username,
+  password: hashed,
+  role: user.role,
+  fullName: user.fullName,
+  active: true
+};
+      })
+    );
 
     await User.insertMany(users);
     console.log('✅ Users seeded successfully');
