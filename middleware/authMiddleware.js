@@ -45,7 +45,8 @@ const authenticateUser = (req, res, next) => {
     req.user = {
       userId: decoded.userId,
       role: decoded.role,
-      username: decoded.fullName || decoded.username || 'System'
+      username: decoded.username,
+      fullName: decoded.fullName || decoded.username || 'System'
     };
     console.log('[DEBUG] Authenticated user:', req.user);
     next();

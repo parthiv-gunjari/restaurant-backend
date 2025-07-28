@@ -18,23 +18,35 @@ router.post('/register', async (req, res) => {
 });
 
 // 🔐 Login User (admin, manager, waiter)
+// server/routes/authRoutes.js
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await User.findOne({ username });
+
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const token = jwt.sign(
-      { userId: user._id, username: user.username, role: user.role },
+      {
+        userId: user._id,
+        username: user.username,
+        role: user.role,
+        fullName: user.fullName // ✅ ADD THIS
+      },
       process.env.JWT_SECRET,
       { expiresIn: '2h' }
     );
-    res.json({ token, role: user.role, message: 'Login successful' });
+
+    res.json({
+      token,
+      role: user.role,
+      fullName: user.fullName, // ✅ RETURN THIS
+      message: 'Login successful'
+    });
   } catch (err) {
     res.status(500).json({ error: 'Login error' });
   }
 });
-
 module.exports = router;

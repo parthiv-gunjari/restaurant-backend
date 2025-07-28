@@ -529,21 +529,50 @@ router.get('/modifications', authenticateAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch audit logs' });
   }
 });
+
+// ✅ GET: Get all pending dine-in orders (for KDS etc.)
+router.get('/dinein/pending', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+  try {
+    const orders = await Order.find({ orderType: 'dine-in', status: 'Pending' })
+      .populate('items.itemId')
+      .sort({ startedAt: -1 });
+
+    const safeOrders = orders.map(order => ({
+      ...order.toObject(),
+      items: Array.isArray(order.items) ? order.items : []
+    }));
+
+    res.json({ orders: safeOrders });
+  } catch (err) {
+    console.error("❌ Error fetching dine-in orders:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 // ✅ GET: Get single order by ID (used for dine-in fetch)
 router.get('/:id', authenticateUser, authorizeRole('admin', 'waiter', 'manager'), async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate('items.itemId');
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-
-    // Ensure initialItems exists and has populated names and prices
-    if (!order.initialItems || order.initialItems.length === 0) {
-      order.initialItems = order.items.map(i => ({ ...(i.toObject?.() || i) }));
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
     }
 
-    res.json(order);
-  } catch (err) {
-    console.error("❌ Error fetching order:", err);
-    res.status(500).json({ error: 'Internal server error' });
+    // Convert items to include itemId explicitly
+    const formattedOrder = {
+      ...order.toObject(),
+      items: Array.isArray(order.items)
+        ? order.items.map(item => ({
+            itemId: item.itemId || item._id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity
+          }))
+        : []
+    };
+
+    res.status(200).json({ order: formattedOrder });
+  } catch (error) {
+    console.error('Error fetching order by ID:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

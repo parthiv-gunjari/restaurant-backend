@@ -8,9 +8,9 @@ mongoose.connect('mongodb+srv://parthivkumar07:Mongodb123@cluster0.hbufw5w.mongo
 
 const generateTableIds = () => {
   const tables = [];
-  const sections = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const sections = ['A', 'B', 'C', 'D'];
   for (let section of sections) {
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 4; i++) {
       tables.push({
         tableNumber: `${section}${i}`,
         status: 'available',
