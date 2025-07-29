@@ -19,7 +19,7 @@ router.post('/', authenticateUser, authorizeRole('admin', 'manager'), async (req
 });
 
 // 📄 Get all reservations (with optional filters)
-router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.get('/', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     const { status, date } = req.query;
     const query = {};
@@ -41,7 +41,7 @@ router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req,
 });
 
 // 🔁 Update reservation status (seated, cancelled, completed)
-router.patch('/:id', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     const updated = await Reservation.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updated) return res.status(404).json({ error: 'Reservation not found' });
@@ -53,7 +53,7 @@ router.patch('/:id', authenticateUser, authorizeRole('admin', 'manager'), async 
 });
 
 // ❌ Delete reservation
-router.delete('/:id', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.delete('/:id', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     const deleted = await Reservation.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Reservation not found' });

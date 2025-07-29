@@ -71,7 +71,7 @@ router.post('/', async (req, res) => {
 // ============================================================
 // GET: Pending Orders with Filters + Pagination (Admin Only)
 // ============================================================
-router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.get('/', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     const { limit = 100, name, email, date } = req.query;
     const query = { status: 'Pending' };
@@ -103,7 +103,7 @@ router.get('/', authenticateUser, authorizeRole('admin', 'manager'), async (req,
 // ============================================================
 // GET: Completed Orders with Filters + Pagination (Admin Only)
 // ============================================================
-router.get('/completed', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.get('/completed', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     const { page = 1, limit = 5, name, email, date } = req.query;
     const skip = (page - 1) * limit;
@@ -131,7 +131,7 @@ router.get('/completed', authenticateUser, authorizeRole('admin', 'manager'), as
 // ============================================================
 // PATCH: Mark Order as Completed + Send Email (Admin Only)
 // ============================================================
-router.patch('/:id/complete', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/complete', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     console.log("🔧 Completing order ID:", req.params.id);
     const order = await Order.findById(req.params.id);
@@ -219,7 +219,7 @@ router.get('/history', async (req, res) => {
 // ============================================================
 // GET: Admin Dashboard Analytics (?from=&to=) (Admin Only)
 // ============================================================
-router.get('/analytics', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.get('/analytics', authenticateUser, authorizeRole('admin'), async (req, res) => {
   try {
     const { from, to } = req.query;
     const dateFilter = {};
@@ -276,7 +276,7 @@ router.get('/analytics', authenticateUser, authorizeRole('admin', 'manager'), as
   }
 });
 // GET: Revenue data for chart
-router.get('/revenue-chart', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.get('/revenue-chart', authenticateUser, authorizeRole('admin'), async (req, res) => {
   try {
     const { range } = req.query;
     const now = new Date();
@@ -419,7 +419,7 @@ router.post(
 );
 // 🔧 PATCH: Admin or Manager modifies order (item qty, cancel, etc.)
 const mongoose = require('mongoose');
-router.patch('/:id/modify', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/modify', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     console.log("📨 Incoming PATCH /modify body:", req.body);
     const { updatedItems, reason } = req.body;
@@ -477,7 +477,7 @@ router.patch('/:id/modify', authenticateUser, authorizeRole('admin', 'manager'),
   }
 });
 // ✅ PATCH: Update order items only (used by Edit button in modal)
-router.patch('/:id/edit', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/edit', authenticateUser, authorizeRole('admin', 'manager','waiter'), async (req, res) => {
   try {
     const { items } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -508,7 +508,7 @@ router.patch('/:id/edit', authenticateUser, authorizeRole('admin', 'manager'), a
   }
 });
 // ✅ GET: Get all modifications (global) for all orders (Admin Only)
-router.get('/modifications', authenticateAdmin, async (req, res) => {
+router.get('/modifications',  authenticateUser, authorizeRole('admin'), async (req, res) => {
   try {
     const logs = await AuditLog.find()
       .populate('performedBy', 'fullName email')
@@ -531,7 +531,7 @@ router.get('/modifications', authenticateAdmin, async (req, res) => {
 });
 
 // ✅ GET: Get all pending dine-in orders (for KDS etc.)
-router.get('/dinein/pending', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+router.get('/dinein/pending', authenticateUser, authorizeRole('admin'), async (req, res) => {
   try {
     const orders = await Order.find({ orderType: 'dine-in', status: 'Pending' })
       .populate('items.itemId')
@@ -590,7 +590,7 @@ router.get('/:id/modifications', authenticateUser, authorizeRole('admin', 'manag
   }
 });
 // ✅ PATCH: Start cooking (sets startedCookingAt timestamp)
-router.patch('/:id/start-cooking', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+router.patch('/:id/start-cooking', authenticateUser, authorizeRole('admin'), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
@@ -822,7 +822,7 @@ router.post('/callin', authenticateUser, authorizeRole('admin', 'manager', 'wait
 
 
 // ✅ PATCH: Update item-level cooking status (for Kitchen Display System)
-router.patch('/:orderId/item/:itemId/status', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+router.patch('/:orderId/item/:itemId/status', authenticateUser, authorizeRole('admin'), async (req, res) => {
   try {
     const { orderId, itemId } = req.params;
     const { status } = req.body;
