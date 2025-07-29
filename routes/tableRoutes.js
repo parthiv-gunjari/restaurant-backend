@@ -88,4 +88,25 @@ router.delete('/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
+
+// 📅 Get available tables for reservation
+router.get('/available', authenticateUser, authorizeRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { time, guests } = req.query;
+
+    // Find all tables that are not reserved or occupied
+    const availableTables = await Table.find({
+      status: { $in: ['available', 'cleaning'] }
+    })
+      .sort({ tableNumber: 1 })
+      .lean();
+
+    // In the future, filter by reservation schedule here as needed
+    res.json(availableTables);
+  } catch (err) {
+    console.error('Error fetching available tables:', err);
+    res.status(500).json({ error: 'Failed to fetch available tables' });
+  }
+});
+
 module.exports = router;

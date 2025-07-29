@@ -46,6 +46,7 @@ const stripeRoutes = require('./routes/stripe');
 const paymentIntentRoutes = require('./routes/paymentIntent');
 const userRoutes = require('./routes/userRoutes');
 const tableRoutes = require('./routes/tableRoutes');
+const reservationRoutes = require('./routes/reservationRoutes');
 // const publicOrderRoutes = require('./routes/publicOrderRoutes');
 
 app.use('/api/menu', menuRoutes);
@@ -55,6 +56,7 @@ app.use('/api/stripe', stripeRoutes);
 app.use('/api/stripe', paymentIntentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tables', tableRoutes);
+app.use('/api/reservations', reservationRoutes);
 // app.use('/api/public-order-status', publicOrderRoutes);
 
 // ✅ Root Route

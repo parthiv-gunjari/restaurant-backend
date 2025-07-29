@@ -7,6 +7,16 @@ const tableSchema = new mongoose.Schema({
     enum: ['available', 'occupied', 'reserved', 'cleaning'],
     default: 'available'
   },
+  // Reservation fields
+  guestCapacity: { type: Number, default: 4 }, // Number of guests the table can hold
+  reservedFor: { type: Date, default: null }, // Reservation time
+  reservationStatus: {
+    type: String,
+    enum: ['none', 'reserved', 'seated', 'cancelled'],
+    default: 'none'
+  },
+  reservationNotes: { type: String, default: '' }, // Notes like birthday or special requests
+  reservedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Reservation', default: null }, // Link to Reservation if needed
   position: {
     x: { type: Number, default: 0 },
     y: { type: Number, default: 0 }
