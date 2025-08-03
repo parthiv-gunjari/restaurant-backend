@@ -1,37 +1,52 @@
-const Order = require('../models/OrderModel'); // ✅ Corrected model import
-const sendConfirmationEmail = require('../utils/sendConfirmationEmail'); // ✅ ADD THIS
+const Order = require('../models/OrderModel'); 
+const sendConfirmationEmail = require('../utils/sendConfirmationEmail'); 
 const express = require("express");
 const router = express.Router();
 const Stripe = require("stripe");
-const MenuItem = require('../models/MenuItemModel'); // ✅ THIS LINE IS MISSING
+const MenuItem = require('../models/MenuItemModel'); 
 require("dotenv").config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 router.post("/create-payment-intent", async (req, res) => {
-  const { items, customer } = req.body;
+  const { items, customer, amount, orderId } = req.body;
 
   try {
-    const menuItems = await Promise.all(
-      items.map(async (item) => {
-        const menuItem = await MenuItem.findById(item.itemId);
-        if (!menuItem) throw new Error(`Menu item not found: ${item.itemId}`);
-        return {
-          price: menuItem.price,
-          quantity: item.quantity
-        };
-      })
-    );
+    let finalAmount = 0;
 
-    const amount = menuItems.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100;
+    if (amount) {
+      finalAmount = amount;
+    } else if (items?.length) {
+      const menuItems = await Promise.all(
+        items.map(async (item) => {
+          const menuItem = await MenuItem.findById(item.itemId);
+          if (!menuItem) throw new Error(`Menu item not found: ${item.itemId}`);
+          return {
+            price: menuItem.price,
+            quantity: item.quantity
+          };
+        })
+      );
+
+      finalAmount = menuItems.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100;
+    } else if (orderId) {
+      const order = await Order.findById(orderId);
+      if (!order) throw new Error(`Order not found for ID: ${orderId}`);
+      if (order.paymentStatus === 'Paid') {
+        return res.status(400).json({ error: 'Order is already paid.' });
+      }
+      finalAmount = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100;
+    } else {
+      throw new Error('Either items or orderId must be provided to calculate amount.');
+    }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount),
+      amount: Math.round(finalAmount),
       currency: "usd",
       metadata: {
-        customer_name: customer.name,
-        customer_email: customer.email,
-        notes: customer.notes || '',
+        customer_name: customer?.name || '',
+        customer_email: customer?.email || '',
+        notes: customer?.notes || '',
       }
     });
 

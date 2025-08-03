@@ -78,6 +78,14 @@ paymentStatus: {
     enum: ['cash', 'card', 'upi', 'mixed', 'other'],
     default: 'cash'
   },
+  amountPaid: {
+    type: Number,
+    default: 0
+  },
+  changeReturned: {
+    type: Number,
+    default: 0
+  },
   splitPayDetails: [
     {
       payerName: String,

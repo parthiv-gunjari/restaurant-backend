@@ -1,4 +1,5 @@
 
+
 // /server/routes/orderRoutes.js
 const express = require('express');
 const router = express.Router();
@@ -846,5 +847,72 @@ router.patch('/:orderId/item/:itemId/status', authenticateUser, authorizeRole('a
     res.status(500).json({ error: 'Failed to update item status' });
   }
 });
+
+// ✅ PATCH: Record POS Payment (card/cash) & update order
+router.patch('/:id/pay', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
+  try {
+    const {
+      paymentMode,
+      amountPaid,
+      changeReturned,
+      cardBrand,
+      last4,
+      paymentIntentId
+    } = req.body;
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    order.paymentStatus = 'paid';
+    order.paymentMode = paymentMode || 'cash';
+    order.amountPaid = amountPaid || 0;
+    order.changeReturned = changeReturned || 0;
+    order.cardBrand = cardBrand || '';
+    order.last4 = last4 || '';
+    order.paymentIntentId = paymentIntentId || '';
+    order.completedAt = new Date();
+
+    await order.save();
+
+    // If dine-in, reset the table status
+    if (order.orderType === 'dine-in' && order.tableId) {
+      const table = await Table.findById(order.tableId);
+      if (table) {
+        table.status = 'available';
+        table.currentOrderId = null;
+        table.startedAt = null;
+        await table.save();
+        console.log("🪑 Table reset after payment:", table.tableNumber);
+      }
+    }
+
+    res.status(200).json({ message: 'Payment recorded successfully.', order });
+  } catch (err) {
+    console.error("❌ Error recording POS payment:", err);
+    res.status(500).json({ error: 'Failed to record payment.' });
+  }
+});
+// Get active order by tableId
+router.get('/by-table/:tableId', authenticateUser, async (req, res) => {
+  const { tableId } = req.params;
+
+  try {
+    const table = await Table.findById(tableId);
+    if (!table || !table.currentOrderId) {
+      return res.status(404).json({ message: 'No active order for this table' });
+    }
+
+    const order = await Order.findById(table.currentOrderId).populate('items.itemId');
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    res.json({ order });
+  } catch (err) {
+    console.error('Error fetching order by tableId:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 
 module.exports = router;

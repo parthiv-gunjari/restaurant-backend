@@ -19,6 +19,19 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET single menu item by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const item = await MenuItem.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ error: 'Menu item not found' });
+    }
+    res.json(item);
+  } catch (error) {
+    res.status(400).json({ error: 'Failed to fetch menu item' });
+  }
+});
+
 // Middleware for file upload
 const multer = require('multer');
 
