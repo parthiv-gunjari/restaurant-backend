@@ -58,7 +58,7 @@ app.use('/api/stripe', paymentIntentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/reservations', reservationRoutes);
-app.use('/api/razorpay', razorpayRoutes);
+
 // app.use('/api/public-order-status', publicOrderRoutes);
 
 // ✅ Root Route
