@@ -893,7 +893,7 @@ router.patch('/:id/pay', authenticateUser, authorizeRole('admin', 'manager', 'wa
   }
 });
 // Get active order by tableId
-router.get('/by-table/:tableId', authenticateUser, async (req, res) => {
+router.get('/by-table/:tableId', authenticateUser, authorizeRole('admin', 'manager', 'waiter'), async (req, res) => {
   const { tableId } = req.params;
 
   try {
