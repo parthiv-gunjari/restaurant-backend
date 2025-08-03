@@ -47,7 +47,7 @@ const paymentIntentRoutes = require('./routes/paymentIntent');
 const userRoutes = require('./routes/userRoutes');
 const tableRoutes = require('./routes/tableRoutes');
 const reservationRoutes = require('./routes/reservationRoutes');
-const razorpayRoutes = require('./routes/razorpay');
+
 // const publicOrderRoutes = require('./routes/publicOrderRoutes');
 
 app.use('/api/menu', menuRoutes);
