@@ -4,6 +4,7 @@ const express = require("express");
 const router = express.Router();
 const Stripe = require("stripe");
 const MenuItem = require('../models/MenuItemModel'); 
+const Table = require('../models/TableModel');
 require("dotenv").config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -32,7 +33,9 @@ router.post("/create-payment-intent", async (req, res) => {
     } else if (orderId) {
       const order = await Order.findById(orderId);
       if (!order) throw new Error(`Order not found for ID: ${orderId}`);
-      if (order.paymentStatus === 'Paid') {
+      // Consider multiple "paid" representations to be already-paid
+      const paidStatuses = new Set(['paid', 'succeeded', 'completed']);
+      if (paidStatuses.has(String(order.paymentStatus || '').toLowerCase())) {
         return res.status(400).json({ error: 'Order is already paid.' });
       }
       finalAmount = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100;
@@ -119,4 +122,101 @@ router.post('/save-order', async (req, res) => {
   }
 });
 
+// ✅ Mark existing Dine-In order as paid
+router.patch('/mark-paid/:orderId', async (req, res) => {
+  const { paymentIntentId, paymentStatus, cardBrand, last4 } = req.body;
+  console.log('📦 Mark Paid Payload:', req.body);
+
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+    // Robust already-paid guard
+    const paidStatuses = new Set(['paid', 'succeeded', 'completed']);
+    if (paidStatuses.has(String(order.paymentStatus || '').toLowerCase())) {
+      return res.status(400).json({ error: 'Order already paid.' });
+    }
+
+    // Normalize status to your schema enum and persist card details
+    order.paymentIntentId = paymentIntentId || order.paymentIntentId;
+    order.paymentMode = 'card';
+    // Schema allows: ['succeeded','pending','failed','canceled','unpaid','paid']
+    // Use 'paid' (lowercase) to indicate completion; optionally keep gateway status separately if your schema supports it.
+    if (paymentStatus && typeof paymentStatus === 'string') {
+      // keep gateway status only if your schema has a field; otherwise ignore
+      order.gatewayStatus = paymentStatus; // harmless if schema has this, ignored otherwise
+    }
+    order.paymentStatus = 'paid';
+    order.cardBrand = cardBrand || order.cardBrand;
+    order.last4 = last4 || order.last4;
+    order.completedAt = new Date();
+    order.status = 'Completed';
+
+    await order.save();
+
+    // If this was a dine-in order, free the table
+    if (order.orderType === 'dine-in' && order.tableId) {
+      try {
+        await Table.findByIdAndUpdate(
+          order.tableId,
+          { status: 'available', currentOrderId: null },
+          { new: true }
+        );
+      } catch (tableErr) {
+        console.warn('⚠️ Table free failed:', tableErr?.message || tableErr);
+        // Do not fail the request if table update fails; payment already marked.
+      }
+    }
+
+    res.status(200).json({ message: 'Dine-In order marked as paid and table released (if applicable).' });
+  } catch (err) {
+    console.error('❌ Failed to mark dine-in order as paid:', err);
+    res.status(500).json({ error: err.message || 'Failed to update dine-in payment.' });
+  }
+});
+
 module.exports = router;
+
+// ✅ Mark existing Dine-In order as paid via cash
+router.patch('/mark-cash-paid/:orderId', async (req, res) => {
+  const { amountPaid, changeReturned } = req.body;
+
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+    // Robust already-paid guard
+    const paidStatuses = new Set(['paid', 'succeeded', 'completed']);
+    if (paidStatuses.has(String(order.paymentStatus || '').toLowerCase())) {
+      return res.status(400).json({ error: 'Order already paid.' });
+    }
+
+    order.paymentMode = 'cash';
+    order.paymentStatus = 'paid';
+    order.status = 'Completed';
+    order.completedAt = new Date();
+    if (typeof amountPaid !== 'undefined') order.amountPaid = amountPaid;
+    if (typeof changeReturned !== 'undefined') order.changeReturned = changeReturned;
+
+    await order.save();
+
+    // If this was a dine-in order, free the table
+    if (order.orderType === 'dine-in' && order.tableId) {
+      try {
+        await Table.findByIdAndUpdate(
+          order.tableId,
+          { status: 'available', currentOrderId: null },
+          { new: true }
+        );
+      } catch (tableErr) {
+        console.warn('⚠️ Table free failed:', tableErr?.message || tableErr);
+        // Do not fail the request if table update fails; payment already marked.
+      }
+    }
+
+    res.status(200).json({ message: 'Cash payment recorded and table released (if applicable).' });
+  } catch (err) {
+    console.error('❌ Failed to mark dine-in order as cash paid:', err);
+    res.status(500).json({ error: err.message || 'Failed to update dine-in cash payment.' });
+  }
+});
